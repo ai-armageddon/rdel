@@ -1,5 +1,11 @@
 # rdel
 
+**A safer `rm -rf` for zsh — deletes now, forgives later.**
+
+![shell: zsh](https://img.shields.io/badge/shell-zsh-blue)
+![license: MIT](https://img.shields.io/badge/license-MIT-green)
+![dependencies: none](https://img.shields.io/badge/dependencies-none-lightgrey)
+
 `rdel` is a delayed-delete command for zsh. It moves files into a hidden trash
 bin and permanently deletes them after a configurable retention window, so a
 mistaken `rdel` is recoverable.
@@ -13,6 +19,17 @@ rdel some-file.txt big-directory/
 Instead of permanently deleting, `rdel` moves the targets into
 `~/.local/share/rdel/.trash` (or `$RDEL_TRASH`). Each run also garbage-collects
 items whose retention has expired.
+
+```console
+$ rdel old-project/ notes.txt
+$ rdel --list
+ID                             ORIGINAL                         EXPIRES IN
+20260730-215210-857597c4       /Users/you/old-project           29d 23h
+20260730-215214-b1c4e08f       /Users/you/notes.txt             29d 23h
+$ rdel --restore 20260730-215214-b1c4e08f
+$ ls notes.txt
+notes.txt
+```
 
 ## Features
 
@@ -95,6 +112,18 @@ rdel --empty
 
 Use `-f` to skip the confirmation prompt.
 
+## How Expiration Works
+
+- Each trashed item records its own `expires_at` timestamp when it is deleted,
+  so touching or browsing the trash directory never extends its life.
+- Every `rdel` invocation (including `--list`) first runs a garbage-collection
+  pass and permanently removes any entry whose expiration has passed.
+- Garbage collection is silent by default; add `-v` to see what gets purged.
+- `rdel --list` shows the exact time remaining per entry, so if an ID still
+  appears in the list it is still restorable.
+- Nothing runs in the background. If you never call `rdel` again, expired items
+  stay on disk until your next invocation.
+
 ## Configuration
 
 | Variable              | Default                            | Description                     |
@@ -136,3 +165,11 @@ whence -v rdel
 
 If it shows `~/.zsh/functions/rdel.zsh`, that legacy autoload path is taking
 precedence. Re-run the installer with `--force`; it updates that file too.
+
+If `rdel` reports `invalid option` for flags like `-h`, an old `alias rdel=...`
+is still winning. Remove that alias from your `~/.zshrc`, or make sure it comes
+before the `rdel` source line.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
