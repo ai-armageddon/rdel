@@ -108,4 +108,32 @@ entry_count=$(command find "$RDEL_TRASH" -mindepth 1 -maxdepth 1 -type d 2>/dev/
 [[ "$entry_count" -eq 1 ]] || fail "combined flags did not move g to trash"
 rdel --empty -f
 
+# Test 11: refusing to trash the trash directory itself.
+if rdel "$RDEL_TRASH" 2>/dev/null; then
+  fail "rdel should refuse to trash the trash directory"
+fi
+[[ -d "$RDEL_TRASH" ]] || fail "trash directory missing after refusal"
+entry_count=$(command find "$RDEL_TRASH" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | command wc -l | command tr -d ' ')
+[[ "$entry_count" -eq 0 ]] || fail "trash not empty after refusal"
+
+# Test 12: refusing to trash an ancestor of the trash directory.
+echo keep > keep
+rdel keep
+entry_count=$(command find "$RDEL_TRASH" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | command wc -l | command tr -d ' ')
+[[ "$entry_count" -eq 1 ]] || fail "setup failed: expected 1 trash entry"
+if rdel "$tmp_dir" 2>/dev/null; then
+  fail "rdel should refuse to trash an ancestor of the trash directory"
+fi
+entry_count=$(command find "$RDEL_TRASH" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | command wc -l | command tr -d ' ')
+[[ "$entry_count" -eq 1 ]] || fail "trashed file was destroyed by ancestor rdel"
+rdel --empty -f
+
+# Test 13: garbage collection removes orphan entries with no metadata.
+mkdir -p "$RDEL_TRASH/orphan-entry/payload"
+echo x > "$RDEL_TRASH/orphan-entry/payload/x"
+echo h > h
+rdel h
+[[ ! -d "$RDEL_TRASH/orphan-entry" ]] || fail "orphan entry was not garbage collected"
+rdel --empty -f
+
 print -- "All rdel tests passed."

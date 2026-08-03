@@ -11,6 +11,9 @@ rdel() {
   local -i verbose=0 force=0
   local retention_days=-1
   local trash_root="${RDEL_TRASH:-${XDG_DATA_HOME:-$HOME/.local/share}/rdel/.trash}"
+  # Normalize to an absolute, collision-free path so ancestor checks work
+  # even when RDEL_TRASH is relative or contains '.'/'..' components.
+  trash_root="${trash_root:a}"
   local -a sources
   local restore_id=""
   local subcommand=""
@@ -186,6 +189,16 @@ rdel() {
     fi
 
     abs_src="${src:a}"
+
+    # Refuse to trash the trash directory itself or any ancestor of it:
+    # moving the trash root (or a parent that contains it) into itself would
+    # destroy previously trashed files via the cross-filesystem copy fallback.
+    if [[ "$abs_src" == "$trash_root" || "$abs_src" == "$trash_root"/* || "$trash_root" == "$abs_src"/* ]]; then
+      print -u2 -- "rdel: refusing to delete '$src' (trash directory or its ancestor)"
+      rc=1
+      continue
+    fi
+
     basename="$(command basename -- "$abs_src")"
 
     if [[ -z "$basename" || "$basename" == "/" || "$basename" == "." || "$basename" == ".." ]]; then
@@ -198,10 +211,18 @@ rdel() {
     entry="$trash_root/$id"
     command mkdir -p -- "$entry/payload" || { rc=1; continue; }
 
+    now="$(_rdel_now)"
+    expires=$(( now + retention_days * 86400 ))
+
+    # Write metadata before moving the payload so garbage collection never
+    # sees a populated entry without metadata (such an entry is unrecoverable).
+    if ! _rdel_write_meta "$entry" "$id" "$abs_src" "$basename" "$now" "$expires"; then
+      rc=1
+      command rm -rf -- "$entry" 2>/dev/null || true
+      continue
+    fi
+
     if _rdel_move "$src" "$entry/payload/$basename"; then
-      now="$(_rdel_now)"
-      expires=$(( now + retention_days * 86400 ))
-      _rdel_write_meta "$entry" "$id" "$abs_src" "$basename" "$now" "$expires"
       if (( verbose )); then
         print -- "rdel: moved '$src' to trash (expires in $(_rdel_human_duration $(( expires - now ))))"
       fi
@@ -258,7 +279,18 @@ _rdel_gc() {
     [[ -z "$entry" ]] && continue
     _rdel_meta_get "$entry" expires_at
     expires_at="$REPLY"
-    [[ -z "$expires_at" ]] && continue
+
+    # Entry with no readable expiration is orphaned or corrupt: its metadata
+    # was never written (or was lost), so it can never be restored or expired.
+    # With metadata written before the payload move, such an entry carries no
+    # recoverable data, so remove it instead of letting it leak forever.
+    if [[ -z "$expires_at" ]]; then
+      if [[ -n "$verbose" && "$verbose" -ne 0 ]]; then
+        print -- "rdel: removing orphan entry '$(command basename -- "$entry")' (no metadata)"
+      fi
+      command rm -rf -- "$entry"
+      continue
+    fi
 
     if (( now > expires_at )); then
       _rdel_meta_get "$entry" id
