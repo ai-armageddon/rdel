@@ -432,7 +432,7 @@ _rdel_empty() {
   if [[ -z "$force" || "$force" -eq 0 ]]; then
     local ans
     printf -- 'Permanently delete %s trashed item(s)? [y/N] ' "$count"
-    command read -r ans
+    builtin read -r ans
     if [[ "$ans" != [yY]* ]]; then
       print -- "Cancelled."
       return 0
